@@ -56,6 +56,7 @@ class RAFT(nn.Module):
             self.update_block = BasicUpdateBlock(self.args, hidden_dim=hdim)
 
     def freeze_bn(self):
+        """batch normalization freeze logic"""
         for m in self.modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.eval()
@@ -65,6 +66,10 @@ class RAFT(nn.Module):
         N, C, H, W = img.shape
         coords0 = coords_grid(N, H//8, W//8, device=img.device)
         coords1 = coords_grid(N, H//8, W//8, device=img.device)
+
+        # # DEBUG: Print coordinates initialization
+        # print("Inside initialize_flow - coords0 shape:", coords0.shape)
+        # print("Inside initialize_flow - coords1 shape:", coords1.shape)
 
         # optical flow computed as difference: flow = coords1 - coords0
         return coords0, coords1
@@ -77,18 +82,26 @@ class RAFT(nn.Module):
 
         up_flow = F.unfold(8 * flow, [3,3], padding=1)
         up_flow = up_flow.view(N, 2, 9, 1, 1, H, W)
+        # # DEBUG: Print upsampled flow before and after applying mask
+        # print("Inside upsample_flow - up_flow (before applying mask) shape:", up_flow.shape)
 
         up_flow = torch.sum(mask * up_flow, dim=2)
         up_flow = up_flow.permute(0, 1, 4, 2, 5, 3)
+
+        # # DEBUG: Print upsampled flow final shape
+        # print("Inside upsample_flow - up_flow (after applying mask) shape:", up_flow.shape)
+
         return up_flow.reshape(N, 2, 8*H, 8*W)
 
 
     def forward(self, image1, image2, iters=12, flow_init=None, upsample=True, test_mode=False):
         """ Estimate optical flow between pair of frames """
 
+        # Normalize image between [-1, 1]
         image1 = 2 * (image1 / 255.0) - 1.0
         image2 = 2 * (image2 / 255.0) - 1.0
 
+        # Convert to PyTorch tensors
         image1 = image1.contiguous()
         image2 = image2.contiguous()
 
@@ -114,6 +127,9 @@ class RAFT(nn.Module):
             inp = torch.relu(inp)
 
         coords0, coords1 = self.initialize_flow(image1)
+        # # DEBUG: Print initial coordinates shape
+        # print("Inside forward - Initial coords0 shape:", coords0.shape)
+        # print("Inside forward - Initial coords1 shape:", coords1.shape)
 
         if flow_init is not None:
             coords1 = coords1 + flow_init
@@ -123,12 +139,26 @@ class RAFT(nn.Module):
             coords1 = coords1.detach()
             corr = corr_fn(coords1) # index correlation volume
 
+            # # DEBUG: Print correlation volume shape
+            # print("Inside forward - Iteration", itr, "corr shape:", corr.shape)
+
             flow = coords1 - coords0
+
+            # # DEBUG: Print flow shape
+            # print("Inside forward - Iteration", itr, "flow shape:", flow.shape)
+
+
             with autocast(enabled=self.args.mixed_precision):
                 net, up_mask, delta_flow = self.update_block(net, inp, corr, flow)
 
+            # # DEBUG: Print delta_flow shape
+            # print("DEBUG - delta_flow shape:", delta_flow.shape)
+
             # F(t+1) = F(t) + \Delta(t)
             coords1 = coords1 + delta_flow
+            
+            # # DEBUG: Print updated coords1 shape
+            # print("Inside forward - Iteration", itr, "Updated coords1 shape:", coords1.shape)
 
             # upsample predictions
             if up_mask is None:

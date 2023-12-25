@@ -5,7 +5,14 @@ from scipy import interpolate
 
 
 class InputPadder:
-    """ Pads images such that dimensions are divisible by 8 """
+    """
+    Pads images such that dimensions are divisible by 8.
+
+    Expects input image tensor in the shape of [C, H, W], where:
+    C - Number of channels
+    H - Height of the image
+    W - Width of the image
+    """
     def __init__(self, dims, mode='sintel'):
         self.ht, self.wd = dims[-2:]
         pad_ht = (((self.ht // 8) + 1) * 8 - self.ht) % 8
@@ -16,13 +23,23 @@ class InputPadder:
             self._pad = [pad_wd//2, pad_wd - pad_wd//2, 0, pad_ht]
 
     def pad(self, *inputs):
-        return [F.pad(x, self._pad, mode='replicate') for x in inputs]
+        # # DEBUG: Print shapes before padding
+        # print("inside pad, Before padding:", [x.shape for x in inputs])
+        padded = [F.pad(x, self._pad, mode='replicate') for x in inputs]
+        # # DEBUG: Print shapes after padding
+        # print("inside pad, After padding:", [x.shape for x in padded])
+        return padded
 
     def unpad(self,x):
+        # # DEBUG: Print shape before unpadding
+        # print("inside unpad Before unpadding:", x.shape)
         ht, wd = x.shape[-2:]
         c = [self._pad[2], ht-self._pad[3], self._pad[0], wd-self._pad[1]]
-        return x[..., c[0]:c[1], c[2]:c[3]]
-
+        unpadded = x[..., c[0]:c[1], c[2]:c[3]]
+        # # DEBUG: Print shape after unpadding
+        # print("inside unpad After unpadding:", unpadded.shape)
+        return unpadded
+    
 def forward_interpolate(flow):
     flow = flow.detach().cpu().numpy()
     dx, dy = flow[0], flow[1]
@@ -51,18 +68,25 @@ def forward_interpolate(flow):
         (x1, y1), dy, (x0, y0), method='nearest', fill_value=0)
 
     flow = np.stack([flow_x, flow_y], axis=0)
+    # # DEBUG: Print shape after forward interpolation
+    # print("inside forward_interpolate - flow shape:", flow.shape)
     return torch.from_numpy(flow).float()
 
 
 def bilinear_sampler(img, coords, mode='bilinear', mask=False):
     """ Wrapper for grid_sample, uses pixel coordinates """
+    # # DEBUG: Print shape before bilinear sampling
+    # print("DEBUG - bilinear_sampler before- img shape:", img.shape)
     H, W = img.shape[-2:]
     xgrid, ygrid = coords.split([1,1], dim=-1)
     xgrid = 2*xgrid/(W-1) - 1
     ygrid = 2*ygrid/(H-1) - 1
 
     grid = torch.cat([xgrid, ygrid], dim=-1)
+    # print("inside bilinear_sampler - grid shape:", grid.shape)  # Debug print
     img = F.grid_sample(img, grid, align_corners=True)
+    # # DEBUG: Print shape after bilinear sampling
+    # print("inside bilinear_sampler after- img shape:", img.shape)
 
     if mask:
         mask = (xgrid > -1) & (ygrid > -1) & (xgrid < 1) & (ygrid < 1)
@@ -74,9 +98,15 @@ def bilinear_sampler(img, coords, mode='bilinear', mask=False):
 def coords_grid(batch, ht, wd, device):
     coords = torch.meshgrid(torch.arange(ht, device=device), torch.arange(wd, device=device))
     coords = torch.stack(coords[::-1], dim=0).float()
+    coordis = coords[None].repeat(batch, 1, 1, 1)
+    # # DEBUG: Print shape of coordinate grid
+    # print("inside coords_grid - coords shape:", coordis.shape)
     return coords[None].repeat(batch, 1, 1, 1)
 
 
 def upflow8(flow, mode='bilinear'):
     new_size = (8 * flow.shape[2], 8 * flow.shape[3])
+    upsampled_flow = 8 * F.interpolate(flow, size=new_size, mode=mode, align_corners=True)
+    # # DEBUG: Print shape after upscaling
+    # print("inside upflow8 - upsampled_flow shape:", upsampled_flow.shape)
     return  8 * F.interpolate(flow, size=new_size, mode=mode, align_corners=True)

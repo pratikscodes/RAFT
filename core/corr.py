@@ -17,19 +17,23 @@ class CorrBlock:
 
         # all pairs correlation
         corr = CorrBlock.corr(fmap1, fmap2)
+        # print(" inside CorrBlock __init__ Initial Corr Shape:", corr.shape)  # Debug print
 
         batch, h1, w1, dim, h2, w2 = corr.shape
         corr = corr.reshape(batch*h1*w1, dim, h2, w2)
+        # print("inside CorrBlock __init__ Reshaped Corr Shape:", corr.shape)  # Debug print
         
         self.corr_pyramid.append(corr)
         for i in range(self.num_levels-1):
             corr = F.avg_pool2d(corr, 2, stride=2)
+            # print(f"inside CorrBlock Pyramid Level {i} Corr Shape:", corr.shape)  # Debug print
             self.corr_pyramid.append(corr)
 
     def __call__(self, coords):
         r = self.radius
         coords = coords.permute(0, 2, 3, 1)
         batch, h1, w1, _ = coords.shape
+        # print("inside __call__ Coords Shape:", coords.shape)  # Debug print
 
         out_pyramid = []
         for i in range(self.num_levels):
@@ -41,6 +45,7 @@ class CorrBlock:
             centroid_lvl = coords.reshape(batch*h1*w1, 1, 1, 2) / 2**i
             delta_lvl = delta.view(1, 2*r+1, 2*r+1, 2)
             coords_lvl = centroid_lvl + delta_lvl
+            # print("inside CorrBlock __call__- coords_lvl shape:", coords_lvl.shape)  # Debug print
 
             corr = bilinear_sampler(corr, coords_lvl)
             corr = corr.view(batch, h1, w1, -1)
@@ -70,10 +75,13 @@ class AlternateCorrBlock:
             fmap1 = F.avg_pool2d(fmap1, 2, stride=2)
             fmap2 = F.avg_pool2d(fmap2, 2, stride=2)
             self.pyramid.append((fmap1, fmap2))
+            # print(f'AlternateCorrBlock __init__  Pyramid Level {i} Shape:', fmap1.shape, fmap2.shape)  # Debug print
+
 
     def __call__(self, coords):
         coords = coords.permute(0, 2, 3, 1)
         B, H, W, _ = coords.shape
+        # print("inside AlternateCorrBlock __call__ Coords Shape in call:", coords.shape)  # Debug print
         dim = self.pyramid[0][0].shape[1]
 
         corr_list = []
@@ -85,6 +93,8 @@ class AlternateCorrBlock:
             coords_i = (coords / 2**i).reshape(B, 1, H, W, 2).contiguous()
             corr, = alt_cuda_corr.forward(fmap1_i, fmap2_i, coords_i, r)
             corr_list.append(corr.squeeze(1))
+            # print(f" AlternateCorrBlock __call__ Corr Level {i} Shape:", corr.shape)  # Debug print
+
 
         corr = torch.stack(corr_list, dim=1)
         corr = corr.reshape(B, -1, H, W)
