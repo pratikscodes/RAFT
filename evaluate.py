@@ -186,7 +186,7 @@ def validate_custom(model, val_loader, iters=24):
     px5 = np.mean(epe_all < 5)
 
     print("Validation on Custom Dataset EPE: %f, 1px: %f, 3px: %f, 5px: %f" % (epe, px1, px3, px5))
-    return {'custom-epe': epe, 'custom-px1': px1, 'custom-px3': px3, 'custom-px5': px5}
+    return {'validation-epe': epe, 'validation-px1': px1, 'validation-px3': px3, 'validation-px5': px5}
 
 #------------------------------------------------------------------------------------#
 
