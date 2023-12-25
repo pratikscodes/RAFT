@@ -165,6 +165,31 @@ def validate_kitti(model, iters=24):
     print("Validation KITTI: %f, %f" % (epe, f1))
     return {'kitti-epe': epe, 'kitti-f1': f1}
 
+#------------------------------------------------------------------------------------#
+@torch.no_grad()
+def validate_custom(model, val_loader, iters=24):
+    """ Perform evaluation on a custom dataset """
+    model.eval()
+    epe_list = []
+
+    for image1, image2, flow_gt, valid in val_loader:
+        image1, image2, valid = image1.cuda(), image2.cuda(), valid.cuda()
+
+        _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+        epe = torch.sum((flow_pr.cpu() - flow_gt.cpu())**2, dim=1).sqrt()  # dim=1 assumes batch x 2 (flow dimensions)
+        epe_list.append(epe.view(-1).numpy())
+
+    epe_all = np.concatenate(epe_list)
+    epe = np.mean(epe_all)
+    px1 = np.mean(epe_all < 1)
+    px3 = np.mean(epe_all < 3)
+    px5 = np.mean(epe_all < 5)
+
+    print("Validation on Custom Dataset EPE: %f, 1px: %f, 3px: %f, 5px: %f" % (epe, px1, px3, px5))
+    return {'custom-epe': epe, 'custom-px1': px1, 'custom-px3': px3, 'custom-px5': px5}
+
+#------------------------------------------------------------------------------------#
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
